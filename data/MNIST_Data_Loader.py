@@ -12,18 +12,18 @@ _test_labels_name = 't10k-labels-idx1-ubyte'
 _MNISTDataURL = "http://yann.lecun.com/exdb/mnist/"
 
 
-def get_training_data():
+def get_training_data(directory: str):
     """
     Returns tuple containing 60k training images and labels.
     """
-    return _get_imgs(_training_imgs_name), _get_labels(_training_labels_name)
+    return _get_imgs(directory, _training_imgs_name), _get_labels(directory, _training_labels_name)
 
 
-def get_test_data():
+def get_test_data(directory: str):
     """
-    Returns tuple containing 60k test images and labels.
+    Returns tuple containing 10k test images and labels.
     """
-    return _get_imgs(_test_imgs_name), _get_labels(_test_labels_name)
+    return _get_imgs(directory, _test_imgs_name), _get_labels(directory, _test_labels_name)
 
 
 def _download_data(url: str, directory: str, decompress: bool = True):
@@ -38,19 +38,19 @@ def _download_data(url: str, directory: str, decompress: bool = True):
     file.close()
 
 
-def _get_file(name: str):
+def _get_file(directory: str, name: str):
     """
     Opens file of given name.
     """
-    file_path = os.path.join('../data', name)
+    file_path = os.path.join(directory, name)
     if not os.path.exists(file_path):
         url = _MNISTDataURL + name + '.gz'
         _download_data(url, file_path)
     return open(file_path, 'rb')
 
 
-def _get_labels(name: str):
-    file = _get_file(name)
+def _get_labels(directory: str, name: str):
+    file = _get_file(directory, name)
     magic_number, size = struct.unpack(">II", file.read(8))
     if magic_number != 2049:
         raise ValueError('Magic number mismatch, expected 2049, got {}'.format(magic_number))
@@ -59,8 +59,8 @@ def _get_labels(name: str):
     return labels
 
 
-def _get_imgs(name: str):
-    file = _get_file(name)
+def _get_imgs(directory: str,name: str):
+    file = _get_file(directory, name)
     magic_number, size, rows, columns = struct.unpack(">IIII", file.read(16))
     if magic_number != 2051:
         raise ValueError('Magic number mismatch, expected 2051, got {}'.format(magic_number))

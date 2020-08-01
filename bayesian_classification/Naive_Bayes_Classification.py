@@ -25,4 +25,3 @@ class NaiveBayesClassification:
             P[:, i] = stats.multivariate_normal.logpdf(X, mean=x_mean, cov=var)
         return np.argmax(P, axis=1)
 
-
