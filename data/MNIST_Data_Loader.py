@@ -59,12 +59,12 @@ def _get_labels(directory: str, name: str):
     return labels
 
 
-def _get_imgs(directory: str,name: str):
+def _get_imgs(directory: str, name: str):
     file = _get_file(directory, name)
     magic_number, size, rows, columns = struct.unpack(">IIII", file.read(16))
     if magic_number != 2051:
         raise ValueError('Magic number mismatch, expected 2051, got {}'.format(magic_number))
     images: np.ndarray = np.frombuffer(file.read(), dtype=np.uint8)
-    images.resize((size, rows*columns))
     file.close()
-    return images
+    images.resize((size, rows*columns))
+    return images.astype(np.float) / 255
