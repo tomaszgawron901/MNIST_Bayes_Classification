@@ -8,28 +8,32 @@ def entropy(labels):
     size = np.size(labels)
     _, counts = np.unique(labels, return_counts=True)
     probabilities = counts / size
-    return scipy.stats.entropy(probabilities, base=3)
+    return scipy.stats.entropy(probabilities, base=10)
 
 
-def continuous_gain(data, labels, partition):
+def information_lose(labels, bool_array):
     total_size = np.size(labels)
-    gain = entropy(labels)
-
-    bool_array = data < partition
     positive_size = np.sum(bool_array)
     negative_size = total_size - positive_size
-    gain -= positive_size/total_size * entropy(labels[bool_array])
-    gain -= negative_size/total_size * entropy(labels[~bool_array])
-    return gain
+    return positive_size / total_size * entropy(labels[bool_array]) + \
+           negative_size / total_size * entropy(labels[~bool_array])
 
 
-def maximum_continuous_gain(data, labels, return_partition=False):
-    unique_data = np.unique(data)
-    gains = np.fromiter((continuous_gain(data, labels, partition) for partition in unique_data), np.float)
-    max_gain_index = np.argmax(gains)
-    if return_partition:
-        return gains[max_gain_index], unique_data[max_gain_index]
-    return gains[max_gain_index]
+def the_best_slicing(data, labels):
+    partitions = np.unique(data)
+
+    chosen_bool_array = np.zeros(shape=(), dtype=np.bool)
+    min_info_lose = entropy(labels)
+    chosen_partition = partitions[0]
+    for partition in partitions[1:]:
+        bool_array = data < partition
+        info_lose = information_lose(labels, bool_array)
+        if info_lose < min_info_lose:
+            chosen_bool_array = bool_array
+            min_info_lose = info_lose
+            chosen_partition = partition
+
+    return min_info_lose, chosen_partition, chosen_bool_array
 
 
 class Node:
@@ -69,26 +73,36 @@ class C45DecisionTree:
 
     def _fit(self, data, labels, indices, node_setter, threshold=0.):
         n, d = np.shape(data)
-        info_and_partitions = np.array(
-            list(maximum_continuous_gain(data[:, col], labels, return_partition=True) for col in range(d)))
-        max_info_index = np.argmax(info_and_partitions[:, 0])
-        max_info = info_and_partitions[max_info_index, 0]
-        max_info_partition = info_and_partitions[max_info_index, 1]
 
-        if max_info <= threshold:
+        entr = entropy(labels)
+        lose_threshold = entr - threshold  # lose has to be less than that.
+
+        chosen_column = 0
+        min_lose, chosen_partition, chosen_bool_array = the_best_slicing(data[:, 0], labels)
+        loses = np.empty(shape=d, dtype=np.float)
+        loses[0] = min_lose
+        for column in range(1, d):
+            lose, partition, bool_array = the_best_slicing(data[:, column], labels)
+            loses[column] = lose
+            if lose < min_lose:
+                chosen_column = column
+                min_lose = lose
+                chosen_partition = partition
+                chosen_bool_array = bool_array
+
+        if min_lose > lose_threshold:
             unique, count = np.unique(labels, return_counts=True)
             label = unique[np.argmax(count)]
             new_leaf = Leaf(label)
             node_setter(new_leaf)
-            print(label)
         else:
-            new_node = Node(index=indices[max_info_index], partition=max_info_partition)
+            indices_strainer = loses <= lose_threshold
+            new_node = Node(index=indices[chosen_column], partition=chosen_partition)
             node_setter(new_node)
-            bool_array = data[:, max_info_index] < max_info_partition
-            n_bool_array = ~bool_array
+            n_chosen_bool_array = ~chosen_bool_array
 
-            self._fit(data[bool_array], labels[bool_array], indices, new_node.set_less, threshold)
-            self._fit(data[n_bool_array], labels[n_bool_array], indices, new_node.set_greater, threshold)
+            self._fit(data[chosen_bool_array][:, indices_strainer], labels[chosen_bool_array], indices[indices_strainer], new_node.set_less, threshold)
+            self._fit(data[n_chosen_bool_array][:, indices_strainer], labels[n_chosen_bool_array], indices[indices_strainer], new_node.set_greater, threshold)
 
     def train(self, X: np.ndarray, y: np.ndarray, threshold=0.):
         n, d = np.shape(X)
@@ -100,19 +114,34 @@ class C45DecisionTree:
 
 
 if __name__ == '__main__':
-    training_data_size = 1000
-    testing_data_size = 100
-    threshold = 1e-2
+    import wandb
+    import time
+
+    parameters = dict(
+        training_data_size=20000,
+        testing_data_size=3000,
+        threshold=1e-2
+    )
+
+    wandb.init(config=parameters, name="C45_Prototype-bigdata")
+
     tree = C45DecisionTree()
 
     X, y = Loader.get_training_data('../data')
-    print("C45 training started with {} training data.".format(training_data_size))
-    tree.train(X[:training_data_size], y[:training_data_size], threshold=threshold)
-    print("Naive Bayes classification training finished.")
+    print("C45 training started with {} training data.".format(parameters['training_data_size']))
+    training_start = time.process_time()
+    tree.train(X[:parameters['training_data_size']], y[:parameters['training_data_size']],
+               threshold=parameters['threshold'])
+    training_time = time.process_time() - training_start
+    print("Naive Bayes classification training finished. Time {}s.".format(training_time))
 
     Xt, yt = Loader.get_test_data('../data')
-    print("C45 evaluation started with {} testing data".format(testing_data_size))
-    score = np.mean(tree.classify(Xt[:testing_data_size]) == yt[:testing_data_size])
-    print("Evaluation finished with accuracy {:0.3f}%.".format(score*100))
+    print("C45 evaluation started with {} testing data".format(parameters['testing_data_size']))
+    evaluation_start = time.process_time()
+    score = np.mean(tree.classify(Xt[:parameters['testing_data_size']]) == yt[:parameters['testing_data_size']])
+    evaluation_time = time.process_time() - evaluation_start
+    print("Evaluation finished with accuracy {:0.3f}%. Time {}s.".format(score * 100, evaluation_time))
 
-
+    wandb.run.summary['Accuracy'] = score
+    wandb.run.summary['Training Time'] = training_time
+    wandb.run.summary['Evaluation Time'] = evaluation_time
